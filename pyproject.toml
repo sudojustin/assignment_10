@@ -1,0 +1,12 @@
+[project]
+name = "assignment-10"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "opencv-python>=4.12.0.88",
+    "paho-mqtt>=2.1.0",
+    "pycomm3>=1.2.14",
+    "standardbots==2.20250128.54",
+]
