@@ -10,8 +10,6 @@ import sys
 import time
 sys.path.append("../fanuc_ethernet_ip_drivers/src")
 from robot_controller import robot
-# import robot_controller
-# import paho.mqtt.client as mqtt
 
 BROKER = "localhost"          # Broker being hosted on my machine
 PORT = 1883                   # Default port for MQTT
@@ -25,7 +23,7 @@ YELLOW_UPPER = (45, 255, 255)
 ROBOT_IP = "10.8.4.6"
 HOME_POS = [0, 0, 0, 0, -90, -45]
 # subtract 80ish from x
-DROP_OFF_POS = [676.0311279296875, -189.9359588623047, 39.56829833984375, -179.99996948242188, -2.994090027641505e-05, -45.00004959106445]
+DROP_OFF_POS = [669.0311279296875, -189.9359588623047, 39.56829833984375, -179.89996948242188, -2.994090027641505e-05, -45.00004959106445]
 
 Z_AXIS = 103.27935791015625
 Z_AXIS_STAGING = 159.27935791015625
@@ -53,7 +51,7 @@ def publish(client, msg):
     while True:
         time.sleep(1)
         # msg = f"messages: {msg_count}"
-        result = client.publish(TOPIC_B, msg, retain=False)
+        result = client.publish(TOPIC_B, msg, retain=True)
         # result: [0, 1]
         status = result[0]
         if status == 0:
@@ -61,7 +59,7 @@ def publish(client, msg):
         else:
             print(f"Failed to send message to topic {TOPIC_B}")
         msg_count += 1
-        if msg_count > 5:  # Publish 5 messages to ensure subscriber recieves messages
+        if msg_count > 1:  # Publish 5 messages to ensure subscriber recieves messages
             break
 
 # Function to subscribe to messages in a loop
@@ -95,7 +93,8 @@ def wait_for_message(client, topic):
 
 # Parameters to open onRobot gripper
 OPEN_GRIPPER_PARAMS = {
-    "width_in_mm":138,
+    # "width_in_mm":138,
+    "width_in_mm":132,
     "force_in_newtons":40,
     "wait":True
 }
@@ -227,11 +226,6 @@ def capture_one_frame():
         mvsdk.CameraAlignFree(pFrameBuffer)
 
 
-# 26.56505012 -> -72.20169067
-# 71.56505584 -> -25.53129959
-#  3.01278734 -> -43.07048034
-# 20.55604553 -> -64.03687286
-
 # wrong angles
 # VA:  -71.57° → R:   26.57°
 # VA:   59.74° → R:  -14.74°
@@ -258,40 +252,6 @@ def pixel_angle_to_robot_yaw(visual_angle: float) -> float:
         R += 180
 
     return R
-	# clumps_remaining = False
-	#        for idx, info in enumerate(dice_info, start=1):
-	#            u, v = info['center']
-	#            rect_width, rect_height = info.get('rect_size', (0,0))
-	#
-	#            if rect_width >= 40 or rect_height >= 40:
-	#                clumps_remaining = True
-	#                print(f"Clump detected at Dice {idx} ({info['robot_name']}): Pixel=({u},{v})")
-	#
-	#                x, y, _ = pixel_to_world(u, v, z=Z_HOVER)
-	#                if rect_width >= 40:
-	#                    x -= 120
-	#                    y -= 40
-	#                if rect_height >= 40:
-	#                    y -= 120
-	#                    x -= 40
-	#                hover_pose = [np.float32(x), np.float32(y), 135, 179, 0, R_HORIZONTAL]
-	#
-	#                crx10.write_cartesian_position(hover_pose)
-	#                crx10.schunk_gripper("close")
-	#                time.sleep(0.5)
-	#
-	#                bulldoze = hover_pose.copy()
-	#                if rect_width > 40:
-	#                    bulldoze[0] += 225
-	#                if rect_height > 40:
-	#                    bulldoze[1] += 225
-	#                crx10.write_cartesian_position(bulldoze)
-	#                crx10.schunk_gripper("open")
-	#                crx10.write_cartesian_position(INTER_HOME)
-	#
-	#        if clumps_remaining:
-	#            print("Waiting 2 seconds before rechecking for remaining clumps...")
-	#            time.sleep(2)
 
 # PUSHING PROCESS
 def push_dice(robot, dice_positions):
@@ -302,22 +262,32 @@ def push_dice(robot, dice_positions):
         rx, ry, _ = pixel_to_robot(px, py)
         robot_angle = pixel_angle_to_robot_yaw(angle)
 
-        above_bulldoze_pos = [rx + 100, ry + 100, Z_AXIS_STAGING, W, P, robot_angle]
+        # Close gripper to prepare to declumping
+        robot.onRobot_gripper(**CLOSE_GRIPPER_PARAMS)
+        time.sleep(0.5)
+
+        above_bulldoze_pos = [rx + 150, ry + 200, Z_AXIS_STAGING, W, P, robot_angle]
         robot.write_cartesian_position(above_bulldoze_pos)
 
-        bulldoze_pos = [rx + 100, ry + 100, Z_AXIS, W, P, robot_angle]
+        bulldoze_pos = [rx + 150, ry + 200, Z_AXIS, W, P, robot_angle - 50]
         robot.write_cartesian_position(bulldoze_pos)
 
-        die_pos = [rx, ry, Z_AXIS, W, P, robot_angle]
+        die_pos = [rx - 75, ry - 75, Z_AXIS, W, P, robot_angle]
         robot.write_cartesian_position(die_pos)
 
-        above_die_pos = [rx, ry, Z_AXIS_STAGING, W, P, robot_angle]
-        robot.write_cartesian_position(die_pos)
+        die_pos_blend = [rx - 75, ry - 75, Z_AXIS, W, P, robot_angle - 90]
+        robot.write_cartesian_position(die_pos_blend)
+
+        above_die_pos = [rx - 75, ry - 75, Z_AXIS_STAGING, W, P, robot_angle]
+        robot.write_cartesian_position(above_die_pos)
         time.sleep(0.25)
 
         robot.write_joint_pose(HOME_POS)
-        robot.onRobot_gripper(**OPEN_GRIPPER_PARAMS)
-        time.sleep(0.5)
+
+    robot.write_joint_pose(HOME_POS)
+
+    robot.onRobot_gripper(**OPEN_GRIPPER_PARAMS)
+    time.sleep(0.25)
 
 
 # PICKUP PROCESS
@@ -335,18 +305,39 @@ def pick_dice(robot, dice_positions):
         robot.onRobot_gripper(**CLOSE_GRIPPER_PARAMS)
         time.sleep(0.5)
 
-        robot.write_cartesian_position([rx, ry, Z_AXIS_STAGING, W, P, robot_angle])
+        robot.write_cartesian_position([rx, ry, Z_AXIS_STAGING + 200, W, P, robot_angle])
         time.sleep(0.25)
 
-        robot.write_joint_pose(HOME_POS)
+        # Drop off dice
+        new_x_pos = DROP_OFF_POS[0] - (i * 90)
+        new_drop_off_pos = DROP_OFF_POS.copy()
+        new_drop_off_pos[0] = new_x_pos
+
+        new_drop_off_pos[2] += 200
+        robot.write_cartesian_position(new_drop_off_pos)
+
+        new_drop_off_pos[2] -= 200
+        print(f"drop off pos: {new_drop_off_pos}")
+        robot.write_cartesian_position(new_drop_off_pos)
+
         robot.onRobot_gripper(**OPEN_GRIPPER_PARAMS)
         time.sleep(0.5)
+
+        new_drop_off_pos[2] += 200
+        robot.write_cartesian_position(new_drop_off_pos)
+
+    robot.write_joint_pose(HOME_POS)
+
+    robot.onRobot_gripper(**OPEN_GRIPPER_PARAMS)
+    time.sleep(0.25)
+
 
 
 def main():
     client_pub = connect_mqtt(CLIENT_ID_PUB)  # Client publisher
     client_sub = connect_mqtt(CLIENT_ID_SUB)  # Client subscriber
 
+    publish(client_pub, "")
     rb = robot(ROBOT_IP)
 
     # Set robot speed to 300
@@ -364,6 +355,7 @@ def main():
         print(f"\nReceived status: {status}")
 
         if status["status"] == "pushing":
+            publish(client_pub, "")
             push_dice(rb, status["positions"])
 
             # publish completion
@@ -374,64 +366,6 @@ def main():
         else:
             pick_dice(rb, status["positions"])
             break
-
-    # if status["status"] == "pushing":
-    #     print("we are pushing")
-    #     push_dice(rb, status["positions"])
-    #
-    #     push_status = {"status": "done"}
-    #     msg = json.dumps(push_status)
-    #     client_pub.loop_start()
-    #     publish(client_pub, msg)
-    #     client_pub.loop_stop()
-    # else:
-    #     print("we are picking")
-    #     pick_dice(rb, status["positions"])
-    #
-    # msg = wait_for_message(client_sub, TOPIC_A)
-    # # print(f"\nmsg: {msg}")
-    # status = json.loads(msg)
-
-
-    # frame = capture_one_frame()
-    # if frame is None:
-    #     print("Failed to capture frame.")
-    #     return
-
-    # result, centers = detect_dice(frame)
-    # print(f"centers: {centers}")
-    # cv.imshow("Dice Detection", result)
-    # cv.waitKey(0)
-
-    # pixel_angles = []
-    # dice_robot_coords = []
-    # for center in centers:
-    #     x, y, z = pixel_to_robot(center[0][0], center[0][1])
-    #     pixel_angles.append(center[1])
-    #     print(f"Pixel ({center[0][0]}, {center[0][1]}, angle {center[1]}) → Robot ({x:.4f}, {y:.4f}, {z:.4f})")
-    #     dice_robot_coords.append((x, y, z))
-
-    # print(f"dice_robot_coords: {dice_robot_coords}")
-
-    # if len(centers) == 0:
-        # return
-
-    # cv.destroyAllWindows()
-
-    # robot_angles = []
-
-    # test_angles = [26.56505012, 71.56505584, 3.01278734, 20.55604553]
-    # for va in pixel_angles:
-    #     R = pixel_angle_to_robot_yaw(va)
-    #     print(f"VA: {va:7.2f}° → R: {R:7.2f}°")
-
-    # for pixel_angle in pixel_angles:
-    #     robot_angle = pixel_angle_to_robot_yaw(pixel_angle)
-    #     robot_angles.append(robot_angle)
-
-    # for i, ang in enumerate(robot):
-
-    # rb.write_joint_pose(HOME_POS)
 
 
 if __name__ == "__main__":
